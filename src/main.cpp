@@ -20,11 +20,29 @@ QMP6988 qmp;
 // タイマー
 // =============================
 
-const unsigned long TIMER_DURATION =
-    60UL * 60UL * 1000UL;
+// 選択できるタイマー時間
+const unsigned long TIMER_DURATIONS[] = {
+    3UL  * 60UL * 1000UL,
+    15UL * 60UL * 1000UL,
+    30UL * 60UL * 1000UL,
+    60UL * 60UL * 1000UL
+};
 
-// テスト時はこちら
-// const unsigned long TIMER_DURATION = 10UL * 1000UL;
+const int TIMER_COUNT = 4;
+
+// 初期値は60分
+int selectedTimerIndex = 3;
+
+// 現在選択されているタイマー時間
+unsigned long getTimerDuration() {
+  return TIMER_DURATIONS[selectedTimerIndex];
+}
+
+// 時間選択表示
+unsigned long timerSelectionShownAt = 0;
+bool timerSelectionVisible = false;
+
+const unsigned long TIMER_SELECTION_DISPLAY_MS = 2000;
 
 bool timerRunning = false;
 bool timerFinished = false;
@@ -128,6 +146,25 @@ void setLeds(
 
   for (int i = 0; i < count; i++) {
     strip.setPixelColor(i, color);
+  }
+
+  strip.show();
+}
+
+
+void showTimerSelection() {
+
+  const int LED_COUNTS[] = {3, 8, 15, 24};
+
+  int count = LED_COUNTS[selectedTimerIndex];
+
+  strip.setBrightness(20);
+  strip.clear();
+
+  for (int i = 0; i < count; i++) {
+    strip.setPixelColor(
+        i,
+        strip.Color(255, 180, 0));
   }
 
   strip.show();
@@ -394,20 +431,47 @@ void loop() {
   }
 
 
-  // -----------------------------
-  // ボタン
-  // -----------------------------
+// -----------------------------
+// ボタン
+// -----------------------------
 
-  if (M5.BtnA.wasPressed()) {
+  // 長押しでタイマー開始・やり直し
+  if (M5.BtnA.wasHold()) {
 
     timerStartedAt = now;
-
     timerRunning = true;
     timerFinished = false;
+  
+    // 時間選択表示を終了する
+    timerSelectionVisible = false;
 
-    Serial.println("Timer started / reset");
+    Serial.print("Timer started / reset: ");
+    Serial.print(getTimerDuration() / 60000UL);
+    Serial.println(" min");
   }
 
+  // 短押しで時間変更・終了表示解除
+  if (M5.BtnA.wasClicked()) {
+
+    if (timerFinished) {
+
+      timerFinished = false;
+
+      Serial.println("Timer finished display cleared");
+
+    } else if (!timerRunning) {
+
+      selectedTimerIndex =
+          (selectedTimerIndex + 1) % TIMER_COUNT;
+
+      timerSelectionShownAt = now;
+      timerSelectionVisible = true;
+
+      Serial.print("Timer selected: ");
+      Serial.print(getTimerDuration() / 60000UL);
+      Serial.println(" min");
+    }
+  }
 
   // -----------------------------
   // 点滅タイミング
@@ -415,6 +479,22 @@ void loop() {
 
   bool blinkVisible =
       ((now / 700) % 2) == 0;
+
+
+  // 時間選択中はLEDに選択時間を表示
+  if (timerSelectionVisible && !timerRunning) {
+
+    if (now - timerSelectionShownAt <
+        TIMER_SELECTION_DISPLAY_MS) {
+
+      showTimerSelection();
+
+      delay(10);
+      return;
+    }
+
+    timerSelectionVisible = false;
+  }
 
 
   // -----------------------------
@@ -439,7 +519,7 @@ void loop() {
     unsigned long elapsed =
         now - timerStartedAt;
 
-    if (elapsed >= TIMER_DURATION) {
+    if (elapsed >= getTimerDuration()) {
 
       timerRunning = false;
       timerFinished = true;
@@ -453,7 +533,7 @@ void loop() {
       int remaining =
           TIMER_LEDS -
           ((unsigned long)TIMER_LEDS *
-          elapsed / TIMER_DURATION);
+          elapsed / getTimerDuration());
 
       showNormalState(
           remaining,
