@@ -57,6 +57,15 @@ enum ComfortLevel {
 ComfortLevel comfortLevel = COMFORTABLE;
 
 
+enum ComfortDirection {
+  NEUTRAL,
+  COLD_DRY,
+  HOT_HUMID
+};
+
+ComfortDirection comfortDirection = NEUTRAL;
+
+
 // とりあえずの閾値
 ComfortLevel getComfortLevel(
     float temperature,
@@ -84,6 +93,27 @@ ComfortLevel getComfortLevel(
 }
 
 
+ComfortDirection getComfortDirection(
+    float temperature,
+    float humidity) {
+
+  // 暑い・湿度が高い場合は赤
+  if (temperature >= 28.0f ||
+      humidity >= 65.0f) {
+    return HOT_HUMID;
+  }
+
+  // 寒い・乾燥している場合は青
+  if (temperature <= 18.0f ||
+      humidity <= 35.0f) {
+    return COLD_DRY;
+  }
+
+  // 快適な場合は緑
+  return NEUTRAL;
+}
+
+
 // =============================
 // LED
 // =============================
@@ -105,17 +135,51 @@ void setLeds(
 
 
 // タイマー終了表示
-void showFinished(bool visible) {
+// タイマー終了時：中心から虹色が広がる
+void showFinished() {
 
-  if (visible) {
-    setLeds(
-        NUM_LEDS,
-        strip.Color(255, 0, 0),
-        48);
-  } else {
-    strip.clear();
-    strip.show();
+  const unsigned long STEP_MS = 180;
+  const int CYCLE_STEPS = 5;
+
+  unsigned long step =
+      (millis() / STEP_MS) % CYCLE_STEPS;
+
+  uint16_t hueBase =
+      (uint16_t)((millis() * 20UL) & 0xFFFF);
+
+  strip.setBrightness(48);
+  strip.clear();
+
+  for (int y = 0; y < 5; y++) {
+    for (int x = 0; x < 5; x++) {
+
+      int dx = abs(x - 2);
+      int dy = abs(y - 2);
+
+      // 中心からの距離（0〜2）
+      int ring = max(dx, dy);
+
+      // 中心から外側へ順番に点灯
+      if (ring > (int)step) {
+        continue;
+      }
+
+      // 輪ごとに虹色を変える
+      uint16_t hue =
+          hueBase + ring * 14000UL;
+
+      uint32_t color =
+          strip.gamma32(
+              strip.ColorHSV(hue));
+
+      int ledIndex = y * 5 + x;
+
+      strip.setPixelColor(
+          ledIndex, color);
+    }
   }
+
+  strip.show();
 }
 
 
@@ -173,9 +237,23 @@ void showNormalState(
       break;
     }
 
-    strip.setPixelColor(
-        ledIndex,
-        strip.Color(0, 0, 255));
+    uint32_t color;
+
+    switch (comfortDirection) {
+      case COLD_DRY:
+        color = strip.Color(0, 0, 255); // 青
+        break;
+
+      case HOT_HUMID:
+        color = strip.Color(255, 0, 0); // 赤
+        break;
+
+      default:
+        color = strip.Color(0, 255, 0); // 緑
+        break;
+    }
+
+    strip.setPixelColor(ledIndex, color);
   }
 
   // 左上：タイマー動作ランプ
@@ -283,6 +361,10 @@ void loop() {
               currentTemperature,
               currentHumidity);
 
+      comfortDirection =
+          getComfortDirection(
+              currentTemperature,
+              currentHumidity);
 
       Serial.print("Temperature: ");
       Serial.print(currentTemperature);
@@ -341,7 +423,7 @@ void loop() {
 
   if (timerFinished) {
 
-    showFinished(blinkVisible);
+    showFinished();
 
     delay(10);
     return;
